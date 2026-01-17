@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/database'
-import { sendBookingNotification } from '@/lib/telegram'
+import { sendBookingNotification, sendCancellationNotification, sendModificationNotification } from '@/lib/telegram'
 
 export async function POST(request: NextRequest) {
   try {
@@ -197,18 +197,32 @@ export async function PUT(request: NextRequest) {
       )
     }
     
-    // Verificar se a marcação existe e pertence ao usuário
-    const existingBooking = await sql`
-      SELECT id FROM bookings 
-      WHERE id = ${bookingId} AND user_id = ${userId}
+    // Buscar informações da marcação antes de atualizar (para comparação)
+    const oldBookingDetails = await sql`
+      SELECT 
+        b.client_name,
+        b.client_phone,
+        b.date,
+        b.start_time,
+        b.end_time,
+        b.barber_id,
+        b.service_id,
+        ba.name as barber_name,
+        s.name as service_name
+      FROM bookings b
+      JOIN barbers ba ON b.barber_id = ba.id
+      JOIN services s ON b.service_id = s.id
+      WHERE b.id = ${bookingId} AND b.user_id = ${userId}
     `
     
-    if (existingBooking.length === 0) {
+    if (oldBookingDetails.length === 0) {
       return NextResponse.json(
         { error: 'Marcação não encontrada ou você não tem permissão para editá-la' },
         { status: 404 }
       )
     }
+    
+    const oldBooking = oldBookingDetails[0]
     
     // Verificar conflito de horário (excluindo a própria marcação)
     if (barberId && date && startTime && endTime) {
@@ -246,6 +260,52 @@ export async function PUT(request: NextRequest) {
       WHERE id = ${bookingId}
     `
     
+    // Buscar informações atualizadas da marcação
+    const newBookingDetails = await sql`
+      SELECT 
+        b.client_name,
+        b.client_phone,
+        b.date,
+        b.start_time,
+        b.end_time,
+        ba.name as barber_name,
+        s.name as service_name
+      FROM bookings b
+      JOIN barbers ba ON b.barber_id = ba.id
+      JOIN services s ON b.service_id = s.id
+      WHERE b.id = ${bookingId}
+    `
+    
+    if (newBookingDetails.length > 0) {
+      const newBooking = newBookingDetails[0]
+      const barberNameLower = newBooking.barber_name.toLowerCase()
+      
+      // Enviar notificação de modificação se for para Lima ou Rute
+      if (barberNameLower.includes('lima') || barberNameLower.includes('rute')) {
+        console.log(`[Booking] Enviando notificação de modificação para ${newBooking.barber_name}`)
+        await sendModificationNotification(
+          {
+            clientName: oldBooking.client_name,
+            clientPhone: oldBooking.client_phone,
+            barberName: oldBooking.barber_name,
+            serviceName: oldBooking.service_name,
+            date: oldBooking.date,
+            startTime: oldBooking.start_time,
+            endTime: oldBooking.end_time
+          },
+          {
+            clientName: newBooking.client_name,
+            clientPhone: newBooking.client_phone,
+            barberName: newBooking.barber_name,
+            serviceName: newBooking.service_name,
+            date: newBooking.date,
+            startTime: newBooking.start_time,
+            endTime: newBooking.end_time
+          }
+        )
+      }
+    }
+    
     return NextResponse.json({ 
       message: 'Marcação atualizada com sucesso' 
     })
@@ -272,24 +332,51 @@ export async function DELETE(request: NextRequest) {
       )
     }
     
-    // Verificar se a marcação existe e pertence ao usuário
-    const existingBooking = await sql`
-      SELECT id FROM bookings 
-      WHERE id = ${bookingId} AND user_id = ${userId}
+    // Buscar informações da marcação antes de deletar (para notificação)
+    const bookingDetails = await sql`
+      SELECT 
+        b.client_name,
+        b.client_phone,
+        b.date,
+        b.start_time,
+        b.end_time,
+        ba.name as barber_name,
+        s.name as service_name
+      FROM bookings b
+      JOIN barbers ba ON b.barber_id = ba.id
+      JOIN services s ON b.service_id = s.id
+      WHERE b.id = ${bookingId} AND b.user_id = ${userId}
     `
     
-    if (existingBooking.length === 0) {
+    if (bookingDetails.length === 0) {
       return NextResponse.json(
         { error: 'Marcação não encontrada ou você não tem permissão para excluí-la' },
         { status: 404 }
       )
     }
     
+    const booking = bookingDetails[0]
+    
     // Deletar marcação
     await sql`
       DELETE FROM bookings 
       WHERE id = ${bookingId}
     `
+    
+    // Enviar notificação de cancelamento se for para Lima ou Rute
+    const barberNameLower = booking.barber_name.toLowerCase()
+    if (barberNameLower.includes('lima') || barberNameLower.includes('rute')) {
+      console.log(`[Booking] Enviando notificação de cancelamento para ${booking.barber_name}`)
+      await sendCancellationNotification({
+        clientName: booking.client_name,
+        clientPhone: booking.client_phone,
+        barberName: booking.barber_name,
+        serviceName: booking.service_name,
+        date: booking.date,
+        startTime: booking.start_time,
+        endTime: booking.end_time
+      })
+    }
     
     return NextResponse.json({ 
       message: 'Marcação excluída com sucesso' 

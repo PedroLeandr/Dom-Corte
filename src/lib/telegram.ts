@@ -77,6 +77,153 @@ export async function sendBookingNotification(booking: BookingNotification): Pro
   }
 }
 
+export async function sendCancellationNotification(booking: BookingNotification): Promise<void> {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn('[Telegram] Bot não configurado. Pulando notificação.')
+    return
+  }
+
+  const barberNameLower = booking.barberName.toLowerCase()
+  let chatId: string | undefined
+  let barberDisplayName: string = booking.barberName
+
+  if (barberNameLower.includes('lima')) {
+    chatId = TELEGRAM_CHAT_ID_LIMA
+    barberDisplayName = 'Lima'
+  } else if (barberNameLower.includes('rute')) {
+    chatId = TELEGRAM_CHAT_ID_RUTE
+    barberDisplayName = 'Rute'
+  } else {
+    console.warn(`[Telegram] Chat ID não configurado para o barbeiro: ${booking.barberName}`)
+    return
+  }
+
+  if (!chatId) {
+    console.warn(`[Telegram] Chat ID não configurado para o barbeiro: ${booking.barberName}`)
+    return
+  }
+
+  try {
+    const message = `
+❌ *Marcação Cancelada - ${barberDisplayName}*
+
+👤 *Cliente:* ${booking.clientName}
+📱 *Telefone:* ${booking.clientPhone}
+💈 *Barbeiro:* ${booking.barberName}
+✂️ *Serviço:* ${booking.serviceName}
+📅 *Data:* ${formatDate(booking.date)}
+🕐 *Horário:* ${booking.startTime} - ${booking.endTime}
+    `.trim()
+
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.description || 'Erro ao enviar mensagem')
+    }
+
+    console.log(`[Telegram] Notificação de cancelamento enviada para ${barberDisplayName}`)
+  } catch (error) {
+    console.error('[Telegram] Erro ao enviar notificação de cancelamento:', error)
+  }
+}
+
+export async function sendModificationNotification(
+  oldBooking: BookingNotification,
+  newBooking: BookingNotification
+): Promise<void> {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn('[Telegram] Bot não configurado. Pulando notificação.')
+    return
+  }
+
+  const barberNameLower = newBooking.barberName.toLowerCase()
+  let chatId: string | undefined
+  let barberDisplayName: string = newBooking.barberName
+
+  if (barberNameLower.includes('lima')) {
+    chatId = TELEGRAM_CHAT_ID_LIMA
+    barberDisplayName = 'Lima'
+  } else if (barberNameLower.includes('rute')) {
+    chatId = TELEGRAM_CHAT_ID_RUTE
+    barberDisplayName = 'Rute'
+  } else {
+    console.warn(`[Telegram] Chat ID não configurado para o barbeiro: ${newBooking.barberName}`)
+    return
+  }
+
+  if (!chatId) {
+    console.warn(`[Telegram] Chat ID não configurado para o barbeiro: ${newBooking.barberName}`)
+    return
+  }
+
+  try {
+    // Construir mensagem mostrando as mudanças
+    let changes = []
+    
+    if (oldBooking.clientName !== newBooking.clientName) {
+      changes.push(`👤 *Cliente:* ${oldBooking.clientName} → ${newBooking.clientName}`)
+    }
+    if (oldBooking.clientPhone !== newBooking.clientPhone) {
+      changes.push(`📱 *Telefone:* ${oldBooking.clientPhone} → ${newBooking.clientPhone}`)
+    }
+    if (oldBooking.date !== newBooking.date) {
+      changes.push(`📅 *Data:* ${formatDate(oldBooking.date)} → ${formatDate(newBooking.date)}`)
+    }
+    if (oldBooking.startTime !== newBooking.startTime || oldBooking.endTime !== newBooking.endTime) {
+      changes.push(`🕐 *Horário:* ${oldBooking.startTime}-${oldBooking.endTime} → ${newBooking.startTime}-${newBooking.endTime}`)
+    }
+    if (oldBooking.serviceName !== newBooking.serviceName) {
+      changes.push(`✂️ *Serviço:* ${oldBooking.serviceName} → ${newBooking.serviceName}`)
+    }
+
+    const changesText = changes.length > 0 ? changes.join('\n') : 'Sem alterações detectadas'
+
+    const message = `
+✏️ *Marcação Modificada - ${barberDisplayName}*
+
+${changesText}
+
+*Dados Atuais:*
+👤 *Cliente:* ${newBooking.clientName}
+📱 *Telefone:* ${newBooking.clientPhone}
+💈 *Barbeiro:* ${newBooking.barberName}
+✂️ *Serviço:* ${newBooking.serviceName}
+📅 *Data:* ${formatDate(newBooking.date)}
+🕐 *Horário:* ${newBooking.startTime} - ${newBooking.endTime}
+    `.trim()
+
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.description || 'Erro ao enviar mensagem')
+    }
+
+    console.log(`[Telegram] Notificação de modificação enviada para ${barberDisplayName}`)
+  } catch (error) {
+    console.error('[Telegram] Erro ao enviar notificação de modificação:', error)
+  }
+}
+
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
   return date.toLocaleDateString('pt-BR', {
