@@ -110,6 +110,7 @@ async function sendBookingsForDate(chatId: number, date: string, barber: string 
     if (barber === 'all') {
       result = await sql`
         SELECT 
+          b.id,
           b.client_name,
           b.client_phone,
           b.start_time,
@@ -125,6 +126,7 @@ async function sendBookingsForDate(chatId: number, date: string, barber: string 
     } else {
       result = await sql`
         SELECT 
+          b.id,
           b.client_name,
           b.client_phone,
           b.start_time,
@@ -154,47 +156,87 @@ async function sendBookingsForDate(chatId: number, date: string, barber: string 
     
     const dateObj = new Date(date + 'T00:00:00')
     const dateFormatted = dateObj.toLocaleDateString('pt-BR', { 
-      weekday: 'long', 
       day: '2-digit', 
-      month: 'long',
-      year: 'numeric'
+      month: '2-digit'
     })
     
     const barberName = barber === 'all' ? '' : ` - ${barber === 'lima' ? 'Lima' : 'Rute'}`
-    let message = `📅 *Marcações para ${dateFormatted}${barberName}*\n\n`
-    message += `Total: ${result.length} marcação${result.length > 1 ? 'ões' : ''}\n\n`
+    let message = `📅 *${dateFormatted}${barberName}*\n\n`
+    
+    const keyboard: any[] = []
     
     result.forEach((booking: any, index: number) => {
       const startTimeObj = booking.start_time instanceof Date 
         ? booking.start_time 
         : new Date(booking.start_time)
-      const endTimeObj = booking.end_time instanceof Date 
-        ? booking.end_time 
-        : new Date(booking.end_time)
         
       const startTime = startTimeObj.toLocaleTimeString('pt-BR', { 
         hour: '2-digit', 
         minute: '2-digit' 
       })
-      const endTime = endTimeObj.toLocaleTimeString('pt-BR', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      })
       
-      message += `${index + 1}. 🕐 *${startTime} - ${endTime}*\n`
-      message += `   👤 ${booking.client_name}\n`
-      message += `   📱 ${booking.client_phone}\n`
+      message += `${index + 1}. 🕐 *${startTime}* - ${booking.client_name}\n`
+      message += `📱 ${booking.client_phone}\n`
       if (barber === 'all') {
-        message += `   💈 ${booking.barber_name}\n`
+        message += `💈 ${booking.barber_name}\n`
       }
-      message += `   ✂️ ${booking.service_name}\n\n`
+      message += `✂️ ${booking.service_name}\n\n`
+      
+      // Adicionar botão para deletar cada marcação
+      keyboard.push([{
+        text: `🗑️ Excluir ${index + 1}`,
+        callback_data: `del_${booking.id}`
+      }])
     })
     
-    await sendMessage(chatId, message, { parse_mode: 'Markdown' })
+    await sendMessage(chatId, message, { 
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard }
+    })
     
   } catch (error) {
     console.error('Erro ao buscar marcações:', error)
     await sendMessage(chatId, '❌ Erro ao buscar marcações. Tente novamente.')
+  }
+}
+
+// Função para deletar uma marcação
+async function deleteBooking(chatId: number, bookingId: string) {
+  try {
+    // Buscar informações da marcação antes de deletar
+    const bookingInfo = await sql`
+      SELECT 
+        b.client_name,
+        b.start_time,
+        ba.name as barber_name
+      FROM bookings b
+      JOIN barbers ba ON b.barber_id = ba.id
+      WHERE b.id = ${bookingId}
+    `
+    
+    if (bookingInfo.length === 0) {
+      await sendMessage(chatId, '❌ Marcação não encontrada.')
+      return
+    }
+    
+    // Deletar a marcação
+    await sql`DELETE FROM bookings WHERE id = ${bookingId}`
+    
+    const booking = bookingInfo[0]
+    const startTime = new Date(booking.start_time).toLocaleTimeString('pt-BR', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+    
+    await sendMessage(chatId, 
+      `✅ Marcação excluída com sucesso!\n\n` +
+      `👤 ${booking.client_name}\n` +
+      `🕐 ${startTime}`
+    )
+    
+  } catch (error) {
+    console.error('Erro ao deletar marcação:', error)
+    await sendMessage(chatId, '❌ Erro ao excluir marcação. Tente novamente.')
   }
 }
 
@@ -295,6 +337,10 @@ export async function POST(request: NextRequest) {
         const date = `${year}-${month}-${day}`
         
         await sendBookingsForDate(chatId, date, barber)
+      }
+      else if (data.startsWith('del_')) {
+        const bookingId = data.replace('del_', '')
+        await deleteBooking(chatId, bookingId)
       }
       
       await answerCallbackQuery(callbackQueryId)

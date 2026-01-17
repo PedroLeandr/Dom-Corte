@@ -162,6 +162,8 @@ export async function GET(request: NextRequest) {
         b.start_time as "startTime",
         b.end_time as "endTime",
         b.created_at as "createdAt",
+        b.barber_id as "barberId",
+        b.service_id as "serviceId",
         s.name as "serviceName",
         ba.name as "barberName"
       FROM bookings b
@@ -175,6 +177,126 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error('Erro ao buscar agendamentos:', error)
+    return NextResponse.json(
+      { error: 'Erro interno do servidor' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { bookingId, clientName, clientPhone, barberId, serviceId, date, startTime, endTime, userId } = body
+    
+    // Validar dados obrigatórios
+    if (!bookingId || !userId) {
+      return NextResponse.json(
+        { error: 'ID da marcação e do usuário são obrigatórios' },
+        { status: 400 }
+      )
+    }
+    
+    // Verificar se a marcação existe e pertence ao usuário
+    const existingBooking = await sql`
+      SELECT id FROM bookings 
+      WHERE id = ${bookingId} AND user_id = ${userId}
+    `
+    
+    if (existingBooking.length === 0) {
+      return NextResponse.json(
+        { error: 'Marcação não encontrada ou você não tem permissão para editá-la' },
+        { status: 404 }
+      )
+    }
+    
+    // Verificar conflito de horário (excluindo a própria marcação)
+    if (barberId && date && startTime && endTime) {
+      const conflictCheck = await sql`
+        SELECT id FROM bookings 
+        WHERE barber_id = ${barberId} 
+        AND date = ${date}
+        AND id != ${bookingId}
+        AND (
+          (start_time <= ${startTime} AND end_time > ${startTime})
+          OR (start_time < ${endTime} AND end_time >= ${endTime})
+          OR (start_time >= ${startTime} AND end_time <= ${endTime})
+        )
+      `
+      
+      if (conflictCheck.length > 0) {
+        return NextResponse.json(
+          { error: 'Este horário já está ocupado. Por favor, escolha outro horário.' },
+          { status: 409 }
+        )
+      }
+    }
+    
+    // Atualizar marcação
+    await sql`
+      UPDATE bookings 
+      SET 
+        client_name = COALESCE(${clientName}, client_name),
+        client_phone = COALESCE(${clientPhone}, client_phone),
+        barber_id = COALESCE(${barberId}, barber_id),
+        service_id = COALESCE(${serviceId}, service_id),
+        date = COALESCE(${date}, date),
+        start_time = COALESCE(${startTime}, start_time),
+        end_time = COALESCE(${endTime}, end_time)
+      WHERE id = ${bookingId}
+    `
+    
+    return NextResponse.json({ 
+      message: 'Marcação atualizada com sucesso' 
+    })
+    
+  } catch (error: any) {
+    console.error('[Booking] Erro ao atualizar marcação:', error)
+    return NextResponse.json(
+      { error: 'Erro interno do servidor' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const bookingId = searchParams.get('bookingId')
+    const userId = searchParams.get('userId')
+    
+    if (!bookingId || !userId) {
+      return NextResponse.json(
+        { error: 'ID da marcação e do usuário são obrigatórios' },
+        { status: 400 }
+      )
+    }
+    
+    // Verificar se a marcação existe e pertence ao usuário
+    const existingBooking = await sql`
+      SELECT id FROM bookings 
+      WHERE id = ${bookingId} AND user_id = ${userId}
+    `
+    
+    if (existingBooking.length === 0) {
+      return NextResponse.json(
+        { error: 'Marcação não encontrada ou você não tem permissão para excluí-la' },
+        { status: 404 }
+      )
+    }
+    
+    // Deletar marcação
+    await sql`
+      DELETE FROM bookings 
+      WHERE id = ${bookingId}
+    `
+    
+    return NextResponse.json({ 
+      message: 'Marcação excluída com sucesso' 
+    })
+    
+  } catch (error) {
+    console.error('[Booking] Erro ao excluir marcação:', error)
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

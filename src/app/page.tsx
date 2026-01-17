@@ -58,6 +58,9 @@ export default async function Home() {
               <Link href="/marcacao">
                 <Button className="w-full mb-2">Agendar agora</Button>
               </Link>
+              <Link href="/minhas-marcacoes">
+                <Button variant="outline" className="w-full">Minhas Marcações</Button>
+              </Link>
             </div>
             
             <SignOut />
