@@ -22,7 +22,7 @@ export async function sendBookingNotification(booking: BookingNotification): Pro
   // Determinar qual chat ID usar baseado no barbeiro
   const barberNameLower = booking.barberName.toLowerCase()
   let chatId: string | undefined
-  let barberDisplayName: string
+  let barberDisplayName: string = booking.barberName // Inicializar com valor padrão
 
   if (barberNameLower.includes('lima')) {
     chatId = TELEGRAM_CHAT_ID_LIMA
@@ -30,6 +30,10 @@ export async function sendBookingNotification(booking: BookingNotification): Pro
   } else if (barberNameLower.includes('rute')) {
     chatId = TELEGRAM_CHAT_ID_RUTE
     barberDisplayName = 'Rute'
+  } else {
+    // Se não for Lima nem Rute, não enviar notificação
+    console.warn(`[Telegram] Chat ID não configurado para o barbeiro: ${booking.barberName}`)
+    return
   }
 
   if (!chatId) {
