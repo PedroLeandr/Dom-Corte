@@ -1,15 +1,7 @@
-import TelegramBot from 'node-telegram-bot-api'
-
+// Função para enviar notificação via Telegram API (sem biblioteca externa)
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TELEGRAM_CHAT_ID_LIMA = process.env.TELEGRAM_CHAT_LIMA_ID
 const TELEGRAM_CHAT_ID_RUTE = process.env.TELEGRAM_CHAT_RUTE_ID
-
-let bot: TelegramBot | null = null
-
-// Inicializar bot apenas se as credenciais estiverem configuradas
-if (TELEGRAM_BOT_TOKEN) {
-  bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false })
-}
 
 interface BookingNotification {
   clientName: string
@@ -22,7 +14,7 @@ interface BookingNotification {
 }
 
 export async function sendBookingNotification(booking: BookingNotification): Promise<void> {
-  if (!bot) {
+  if (!TELEGRAM_BOT_TOKEN) {
     console.warn('[Telegram] Bot não configurado. Pulando notificação.')
     return
   }
@@ -57,7 +49,23 @@ export async function sendBookingNotification(booking: BookingNotification): Pro
 🕐 *Horário:* ${booking.startTime} - ${booking.endTime}
     `.trim()
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' })
+    // Enviar mensagem usando a API HTTP do Telegram
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.description || 'Erro ao enviar mensagem')
+    }
+
     console.log(`[Telegram] Notificação enviada com sucesso para ${barberDisplayName}`)
   } catch (error) {
     console.error('[Telegram] Erro ao enviar notificação:', error)
